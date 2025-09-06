@@ -107,15 +107,16 @@ def answer(query: str):
             if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
 
-            # ✅ Unique ID handling
+            # ✅ Unique ID handling (but keep all columns)
             if "unique" in q:
-                return res[["MasterItemNo"]].drop_duplicates().reset_index(drop=True)
+                res = res.drop_duplicates(subset=["MasterItemNo"]).reset_index(drop=True)
+                return res
 
             # Default show
             if "show" in q or "list" in q or "display" in q:
                 return res.reset_index(drop=True)
 
-            # Count
+            # Count only
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
