@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import re
@@ -70,6 +69,19 @@ st.download_button(
 st.divider()
 st.subheader("💬 Chatbot Assistant")
 
+# Check if tabulate is installed
+try:
+    from tabulate import tabulate
+    TABULATE_AVAILABLE = True
+except ImportError:
+    TABULATE_AVAILABLE = False
+
+def df_to_string(df):
+    if TABULATE_AVAILABLE:
+        return df.to_markdown(index=False)
+    else:
+        return df.to_string(index=False)
+
 def answer(query: str) -> str:
     q = query.lower().strip()
     cols = {
@@ -80,12 +92,20 @@ def answer(query: str) -> str:
         "quantity": "QtyShipped",
         "qty": "QtyShipped",
         "totalcost": "TotalCost",
+        "total cost": "TotalCost",
         "cost": "TotalCost",
         "spend": "TotalCost"
     }
 
+    # Helper for fuzzy matching
+    def find_column(word):
+        matches = difflib.get_close_matches(word, cols.keys(), n=1, cutoff=0.6)
+        if matches:
+            return cols[matches[0]]
+        return None
+
     # Explanatory Queries
-    if "how" in q and "totalcost" in q:
+    if "how" in q and "totalcost" in q or "total cost" in q:
         return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
 
     # Direct Lookup by ID
@@ -95,96 +115,99 @@ def answer(query: str) -> str:
             id_val = ids[0]
             row = sub[sub["id"] == id_val]
             if not row.empty:
-                return row.to_markdown(index=False)
+                return df_to_string(row)
             return f"No record found for ID {id_val}."
 
-    # Direct Lookup by MasterItemNo
+    # Lookup by MasterItemNo
     if "masteritemno" in q or "item" in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
-            mi = ids[0]
-            row = sub[sub["MasterItemNo"] == mi]
+            mi_val = ids[0]
+            row = sub[sub["MasterItemNo"] == mi_val]
             if not row.empty:
+                # Specific queries
                 if "unitcost" in q or "price" in q:
-                    return f"UnitCost for MasterItemNo {mi}: Rs. {row['UnitCost'].mean():,.2f}"
+                    return f"UnitCost for MasterItemNo {mi_val}: Rs. {row['UnitCost'].mean():,.2f}"
                 if "qty" in q or "quantity" in q:
                     total_qty = row['QtyShipped'].sum()
                     uom = row['UOM'].mode().values[0] if not row['UOM'].mode().empty else ""
-                    return f"Total QtyShipped for MasterItemNo {mi}: {total_qty:,.2f} {uom}"
-                if "cost" in q or "totalcost" in q or "spend" in q:
-                    return f"TotalCost for MasterItemNo {mi}: Rs. {row['TotalCost'].sum():,.2f}"
-                # If not specific, return all info
-                return row.to_markdown(index=False)
-            return f"No record found for MasterItemNo {mi}."
-    
-    # Conditional Queries
-    if ">" in q or "<" in q:
-        for k, v in cols.items():
-            if k in q:
-                try:
-                    threshold = float(re.findall(r"\d+", q)[0])
-                    if ">" in q:
-                        res = sub[sub[v] > threshold].head(10)
-                    else:
-                        res = sub[sub[v] < threshold].head(10)
-                    if res.empty:
-                        return f"No records found with {v} condition."
-                    return res.to_markdown(index=False)
-                except:
-                    pass
+                    return f"Total QtyShipped for MasterItemNo {mi_val}: {total_qty:,.2f} {uom}"
+                if "totalcost" in q or "cost" in q or "spend" in q:
+                    return f"TotalCost for MasterItemNo {mi_val}: Rs. {row['TotalCost'].sum():,.2f}"
+                return df_to_string(row)
+            return f"No record found for MasterItemNo {mi_val}."
+        else:
+            return "Please specify a valid MasterItemNo."
+
+    # Conditional Queries like "TotalCost > 10000"
+    for word in cols.keys():
+        if word in q:
+            column = cols[word]
+            nums = re.findall(r"\d+\.?\d*", q)
+            if nums:
+                threshold = float(nums[0])
+                if ">" in q:
+                    res = sub[sub[column] > threshold]
+                elif "<" in q:
+                    res = sub[sub[column] < threshold]
+                else:
+                    continue
+                if res.empty:
+                    return f"No records found where {column} {'>' if '>' in q else '<'} {threshold}."
+                return df_to_string(res.head(10))
 
     # Aggregations
-    if "total" in q and "qty" in q:
+    if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
         return f"Grand total QtyShipped: {total_qty:,.2f} {uom}"
-    if "total cost" in q:
+    if "total cost" in q or "totalcost" in q or "spend" in q:
         return f"Grand total cost: Rs. {sub['TotalCost'].sum():,.2f}"
-    if "average" in q and "unitcost" in q:
+    if "average" in q and ("unitcost" in q or "price" in q):
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost across items: Rs. {avg:,.2f}"
 
-    # Highest / Lowest
-    if "highest" in q or "most" in q or "max" in q:
-        for k, v in cols.items():
-            if k in q:
-                row = sub.loc[sub[v].idxmax()]
-                return f"Highest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}=Rs. {row[v]:,.2f}"
+    # Highest / Lowest Queries
+    if "highest" in q or "max" in q or "most" in q:
+        for word in cols.keys():
+            if word in q:
+                column = cols[word]
+                row = sub.loc[sub[column].idxmax()]
+                return f"Highest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
     if "lowest" in q or "min" in q:
-        for k, v in cols.items():
-            if k in q:
-                row = sub.loc[sub[v].idxmin()]
-                return f"Lowest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}=Rs. {row[v]:,.2f}"
+        for word in cols.keys():
+            if word in q:
+                column = cols[word]
+                row = sub.loc[sub[column].idxmin()]
+                return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
     # Top N items
     if "top" in q:
-        k = 5
         nums = [int(s) for s in re.findall(r"\d+", q)]
-        if nums:
-            k = nums[0]
-        for kword in ["cost", "expensive", "totalcost", "spend"]:
-            if kword in q:
-                res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
-                return res.to_markdown(index=False)
-        for kword in ["qty", "quantity"]:
-            if kword in q:
-                res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
-                return res.to_markdown(index=False)
+        k = nums[0] if nums else 5
+        if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
+            res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
+            return df_to_string(res)
+        if any(w in q for w in ["qty", "quantity"]):
+            res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
+            return df_to_string(res)
 
     # Comparisons
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
             a, b = nums[:2]
-            rows = sub[sub["MasterItemNo"].isin([a, b])].groupby("MasterItemNo")[["QtyShipped", "TotalCost"]].sum().reset_index()
+            rows = sub[sub["MasterItemNo"].isin([a, b])]
             if rows.empty:
                 return "No matching records found to compare."
-            rows["TotalCost"] = rows["TotalCost"].apply(lambda x: f"Rs. {x:,.2f}")
-            return rows.to_markdown(index=False)
+            result = rows.groupby("MasterItemNo")[["QtyShipped", "TotalCost"]].sum().reset_index()
+            result["TotalCost"] = result["TotalCost"].apply(lambda x: f"Rs. {x:,.2f}")
+            return df_to_string(result)
+        return "Please specify two MasterItemNo values to compare."
 
     # Fallback
     return (
-        "I didn’t fully get that 🤔. Try queries like:\n"
+        "I didn’t fully understand that 🤔. Here are some example queries you can try:\n"
         "- 'UnitCost for ID 102'\n"
         "- 'TotalCost of MasterItemNo 555'\n"
         "- 'Show items where QtyShipped > 50'\n"
@@ -202,7 +225,12 @@ user_q = st.chat_input("Ask about costs, quantities, top items...")
 
 if user_q:
     st.session_state.history.append(("user", user_q))
-    st.session_state.history.append(("assistant", answer(user_q)))
+    try:
+        ans = answer(user_q)
+    except Exception as e:
+        ans = f"⚠️ An error occurred while processing your query: {e}"
+    st.session_state.history.append(("assistant", ans))
 
 for role, msg in st.session_state.history:
     st.chat_message(role).write(msg)
+
