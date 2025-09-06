@@ -60,7 +60,7 @@ st.download_button(
 )
 
 # ---------------------------
-# Chatbot
+# Chatbot Assistant
 # ---------------------------
 st.divider()
 st.subheader("💬 Chatbot Assistant")
@@ -98,7 +98,7 @@ def answer(query: str) -> str:
             return cols[matches[0]]
         return None
 
-    # 1. Handle conditional queries first
+    # Handle condition queries like 'TotalCost < 50000'
     condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
     if condition_match:
         col_word, operator, num_str = condition_match.groups()
@@ -111,11 +111,12 @@ def answer(query: str) -> str:
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
-            if res.empty:
+            count = len(res)
+            if count == 0:
                 return f"No records found where {column} {operator} {threshold}."
-            return df_to_string(res.head(10))
+            return f"✅ Number of items with {column} {operator} {threshold}: {count}"
 
-    # 2. Handle direct lookup by ID
+    # Direct lookup by ID
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -125,7 +126,7 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for ID {id_val}."
 
-    # 3. Handle lookup by MasterItemNo
+    # Lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -145,7 +146,7 @@ def answer(query: str) -> str:
         else:
             return "⚠️ Please specify a valid MasterItemNo."
 
-    # 4. Aggregations
+    # Aggregations
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -156,7 +157,7 @@ def answer(query: str) -> str:
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost: Rs. {avg:,.2f}"
 
-    # 5. Highest / Lowest
+    # Highest / Lowest
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -170,18 +171,22 @@ def answer(query: str) -> str:
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
-    # 6. Top N items
+    # Top N items
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 5
         if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
             res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
+            if res.empty:
+                return "No records found."
             return df_to_string(res)
         if any(w in q for w in ["qty", "quantity"]):
             res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
+            if res.empty:
+                return "No records found."
             return df_to_string(res)
 
-    # 7. Compare
+    # Compare two items
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -194,7 +199,7 @@ def answer(query: str) -> str:
             return df_to_string(result)
         return "Please specify two MasterItemNo values to compare."
 
-    # 8. Explanations
+    # Explanations
     if "how" in q and ("totalcost" in q or "total cost" in q):
         return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
 
@@ -203,16 +208,15 @@ def answer(query: str) -> str:
         "🤖 I didn’t fully understand that. Here are example queries you can try:\n"
         "- 'UnitCost for ID 102'\n"
         "- 'TotalCost of MasterItemNo 555'\n"
-        "- 'Total Qty shipped'\n"
+        "- 'Show items where QtyShipped > 50'\n"
+        "- 'List items where TotalCost < 50000'\n"
+        "- 'Which MasterItemNo has highest TotalCost?'\n"
         "- 'Top 5 items by cost'\n"
-        "- 'Compare items 123 and 456'\n"
-        "- 'TotalCost > 10000'\n"
-        "- 'Explain how total cost is calculated'"
+        "- 'Compare item 100 vs 200'\n"
+        "- 'How is TotalCost calculated?'"
     )
 
-# ---------------------------
-# Chatbox Interface
-# ---------------------------
+# Chat UI
 if "history" not in st.session_state:
     st.session_state.history = []
 
