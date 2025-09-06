@@ -101,12 +101,22 @@ def answer(query: str):
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
+            
             if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
-            if any(word in q for word in ["show", "list", "display"]):
-                return res.head(50)   # ✅ return DataFrame instead of string
-            else:
-                return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
+            
+            # Handling "show" vs "number of"
+            if "show" in q or "list" in q or "display" in q:
+                unique_items = res["MasterItemNo"].unique()
+                df_result = pd.DataFrame({"MasterItemNo": unique_items})
+                return df_result
+            if "number" in q or "count" in q:
+                total_count = len(res)
+                unique_count = res["MasterItemNo"].nunique()
+                return f"✅ Total rows matched: {total_count}\n✅ Unique MasterItemNo entries: {unique_count}"
+            
+            # Default fallback
+            return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
 
     # Lookup by ID
     if "id" in q and "where" not in q:
@@ -196,7 +206,7 @@ if submit and user_input.strip():
     response = answer(user_input)
     st.session_state.chat_history.append({"user": user_input, "bot": response})
 
-# Display chat history (DataFrames shown properly)
+# Display chat history
 for chat in st.session_state.chat_history:
     st.markdown(f"**You:** {chat['user']}")
     if isinstance(chat["bot"], pd.DataFrame):
