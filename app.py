@@ -105,16 +105,37 @@ def answer(query: str):
             if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
             
-            # Handling "show" vs "number of"
             if "show" in q or "list" in q or "display" in q:
-                return res.reset_index(drop=True)
+                return res[["id", "MasterItemNo", column]].drop_duplicates().reset_index(drop=True)
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
                 return f"✅ Total rows matched: {total_count}\n✅ Unique MasterItemNo entries: {unique_count}"
             
-            # Default fallback
             return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
+
+    # Top k queries
+    if "top" in q:
+        nums = [int(s) for s in re.findall(r"\d+", q)]
+        k = nums[0] if nums else 3
+        if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
+            grouped = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum()
+            res = grouped.sort_values("TotalCost", ascending=False).head(k)
+            if "show" in q or "list" in q or "display" in q:
+                return res.reset_index(drop=True)
+            else:
+                return f"✅ Top {k} MasterItemNo by TotalCost:\n" + "\n".join(
+                    [f"{row['MasterItemNo']}: Rs. {row['TotalCost']:,.2f}" for _, row in res.iterrows()]
+                )
+        if any(w in q for w in ["qty", "quantity"]):
+            grouped = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum()
+            res = grouped.sort_values("QtyShipped", ascending=False).head(k)
+            if "show" in q or "list" in q or "display" in q:
+                return res.reset_index(drop=True)
+            else:
+                return f"✅ Top {k} MasterItemNo by QtyShipped:\n" + "\n".join(
+                    [f"{row['MasterItemNo']}: {row['QtyShipped']:,.2f}" for _, row in res.iterrows()]
+                )
 
     # Lookup by ID
     if "id" in q and "where" not in q:
@@ -169,17 +190,6 @@ def answer(query: str):
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
-    # Top k items
-    if "top" in q:
-        nums = [int(s) for s in re.findall(r"\d+", q)]
-        k = nums[0] if nums else 5
-        if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
-            res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
-            return res.reset_index(drop=True)
-        if any(w in q for w in ["qty", "quantity"]):
-            res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
-            return res.reset_index(drop=True)
-
     # Compare two items
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
@@ -205,10 +215,10 @@ if submit and user_input.strip():
     st.session_state.chat_history.append({"user": user_input, "bot": response})
 
 # Display chat history
-for chat in st.session_state.chat_history:
+for chat in st.session_state.chat_history[::-1]:
     st.markdown(f"**You:** {chat['user']}")
     if isinstance(chat["bot"], pd.DataFrame):
-        st.dataframe(chat["bot"], use_container_width=True, height=300)
+        st.dataframe(chat["bot"], use_container_width=True)
     else:
         st.markdown(f"**Bot:** {chat['bot']}")
-    st.markdown("---")
+    st.divider()
