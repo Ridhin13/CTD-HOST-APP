@@ -10,7 +10,6 @@ import difflib
 def load_predictions(path="submission_with_cost.csv"):
     try:
         df = pd.read_csv(path)
-        # Ensure numeric types
         for c in ["QtyShipped", "UnitCost", "TotalCost"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -31,7 +30,6 @@ if sub.empty:
     st.warning("No data loaded. Please upload submission_with_cost.csv to your repo.")
     st.stop()
 
-# KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Rows", f"{len(sub):,}")
 col2.metric("Unique Items", f"{sub['MasterItemNo'].nunique():,}")
@@ -40,7 +38,6 @@ col4.metric("Total Cost (INR)", f"Rs. {sub['TotalCost'].sum():,.2f}")
 
 st.divider()
 
-# Filters
 with st.sidebar:
     st.header("🔎 Filters")
     mi = st.text_input("MasterItemNo (optional, numeric)")
@@ -50,12 +47,11 @@ df_view = sub.copy()
 if mi.isnumeric():
     df_view = df_view[df_view["MasterItemNo"] == int(mi)]
 if id_filter.isnumeric():
-    df_view = df_view[df_view["id"] == int(id_filter)]
+    df_view = df_view[df["id"] == int(id_filter)]
 
 st.subheader("📊 Predictions")
 st.dataframe(df_view, use_container_width=True, height=450)
 
-# Download button
 st.download_button(
     "⬇️ Download predictions (CSV)",
     data=sub.to_csv(index=False).encode("utf-8"),
@@ -69,7 +65,6 @@ st.download_button(
 st.divider()
 st.subheader("💬 Chatbot Assistant")
 
-# Check if tabulate is installed
 try:
     from tabulate import tabulate
     TABULATE_AVAILABLE = True
@@ -97,18 +92,30 @@ def answer(query: str) -> str:
         "spend": "TotalCost"
     }
 
-    # Helper for fuzzy matching
     def find_column(word):
         matches = difflib.get_close_matches(word, cols.keys(), n=1, cutoff=0.6)
         if matches:
             return cols[matches[0]]
         return None
 
-    # Explanatory Queries
-    if "how" in q and ("totalcost" in q or "total cost" in q):
-        return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
+    # 1. Handle conditional queries first
+    condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
+    if condition_match:
+        col_word, operator, num_str = condition_match.groups()
+        column = find_column(col_word)
+        if column:
+            threshold = float(num_str)
+            if operator in [">", ">="]:
+                res = sub[sub[column] >= threshold] if operator == ">=" else sub[sub[column] > threshold]
+            elif operator in ["<", "<="]:
+                res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
+            else:
+                return "⚠️ Invalid operator."
+            if res.empty:
+                return f"No records found where {column} {operator} {threshold}."
+            return df_to_string(res.head(10))
 
-    # Direct Lookup by ID
+    # 2. Handle direct lookup by ID
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -118,7 +125,7 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for ID {id_val}."
 
-    # Lookup by MasterItemNo
+    # 3. Handle lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -136,26 +143,9 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for MasterItemNo {mi_val}."
         else:
-            return "Please specify a valid MasterItemNo."
+            return "⚠️ Please specify a valid MasterItemNo."
 
-    # Conditional Queries like "TotalCost > 10000"
-    condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
-    if condition_match:
-        col_word, operator, num_str = condition_match.groups()
-        column = find_column(col_word)
-        if column:
-            threshold = float(num_str)
-            if operator in [">", ">="]:
-                res = sub[sub[column] >= threshold] if operator == ">=" else sub[sub[column] > threshold]
-            elif operator in ["<", "<="]:
-                res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
-            else:
-                return "Invalid operator in query."
-            if res.empty:
-                return f"No records found where {column} {operator} {threshold}."
-            return df_to_string(res.head(10))
-
-    # Aggregations
+    # 4. Aggregations
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -164,9 +154,9 @@ def answer(query: str) -> str:
         return f"Grand total cost: Rs. {sub['TotalCost'].sum():,.2f}"
     if "average" in q and ("unitcost" in q or "price" in q):
         avg = sub["UnitCost"].mean()
-        return f"Average UnitCost across items: Rs. {avg:,.2f}"
+        return f"Average UnitCost: Rs. {avg:,.2f}"
 
-    # Highest / Lowest Queries
+    # 5. Highest / Lowest
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -180,7 +170,7 @@ def answer(query: str) -> str:
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
-    # Top N items
+    # 6. Top N items
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 5
@@ -191,7 +181,7 @@ def answer(query: str) -> str:
             res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
             return df_to_string(res)
 
-    # Comparisons
+    # 7. Compare
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -204,9 +194,13 @@ def answer(query: str) -> str:
             return df_to_string(result)
         return "Please specify two MasterItemNo values to compare."
 
+    # 8. Explanations
+    if "how" in q and ("totalcost" in q or "total cost" in q):
+        return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
+
     # Fallback
     return (
-        "I didn’t fully understand that 🤔. Here are some example queries you can try:\n"
+        "🤖 I didn’t fully understand that. Here are example queries you can try:\n"
         "- 'UnitCost for ID 102'\n"
         "- 'TotalCost of MasterItemNo 555'\n"
         "- 'Show items where QtyShipped > 50'\n"
@@ -228,7 +222,7 @@ if user_q:
     try:
         ans = answer(user_q)
     except Exception as e:
-        ans = f"⚠️ An error occurred while processing your query: {e}"
+        ans = f"⚠️ An error occurred: {e}"
     st.session_state.history.append(("assistant", ans))
 
 for role, msg in st.session_state.history:
