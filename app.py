@@ -88,7 +88,9 @@ def answer(query: str):
             return cols[matches[0]]
         return None
 
+    # ---------------------------
     # Condition-based queries like cost > 1000
+    # ---------------------------
     condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
     if condition_match:
         col_word, operator, num_str = condition_match.groups()
@@ -104,9 +106,16 @@ def answer(query: str):
             
             if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
-            
+
+            # ✅ Unique ID handling
+            if "unique" in q:
+                return res[["MasterItemNo"]].drop_duplicates().reset_index(drop=True)
+
+            # Default show
             if "show" in q or "list" in q or "display" in q:
-                return res[["id", "MasterItemNo", column]].drop_duplicates().reset_index(drop=True)
+                return res.reset_index(drop=True)
+
+            # Count
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
@@ -114,7 +123,9 @@ def answer(query: str):
             
             return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
 
+    # ---------------------------
     # Top k queries
+    # ---------------------------
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 3
@@ -122,7 +133,8 @@ def answer(query: str):
             grouped = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum()
             res = grouped.sort_values("TotalCost", ascending=False).head(k)
             if "show" in q or "list" in q or "display" in q:
-                return res.reset_index(drop=True)
+                # ✅ Show all rows for these top MasterItemNo
+                return sub[sub["MasterItemNo"].isin(res["MasterItemNo"])].reset_index(drop=True)
             else:
                 return f"✅ Top {k} MasterItemNo by TotalCost:\n" + "\n".join(
                     [f"{row['MasterItemNo']}: Rs. {row['TotalCost']:,.2f}" for _, row in res.iterrows()]
@@ -131,13 +143,15 @@ def answer(query: str):
             grouped = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum()
             res = grouped.sort_values("QtyShipped", ascending=False).head(k)
             if "show" in q or "list" in q or "display" in q:
-                return res.reset_index(drop=True)
+                return sub[sub["MasterItemNo"].isin(res["MasterItemNo"])].reset_index(drop=True)
             else:
                 return f"✅ Top {k} MasterItemNo by QtyShipped:\n" + "\n".join(
                     [f"{row['MasterItemNo']}: {row['QtyShipped']:,.2f}" for _, row in res.iterrows()]
                 )
 
+    # ---------------------------
     # Lookup by ID
+    # ---------------------------
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -145,7 +159,9 @@ def answer(query: str):
             row = sub[sub["id"] == id_val]
             return row if not row.empty else f"No record found for ID {id_val}."
 
+    # ---------------------------
     # Lookup by MasterItemNo
+    # ---------------------------
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -165,7 +181,9 @@ def answer(query: str):
         else:
             return "⚠️ Please specify a valid MasterItemNo."
 
+    # ---------------------------
     # Total summaries
+    # ---------------------------
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -176,7 +194,9 @@ def answer(query: str):
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost: Rs. {avg:,.2f}"
 
+    # ---------------------------
     # Highest/lowest
+    # ---------------------------
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -190,7 +210,9 @@ def answer(query: str):
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
+    # ---------------------------
     # Compare two items
+    # ---------------------------
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -201,11 +223,12 @@ def answer(query: str):
 
     return "⚠️ Sorry, I couldn't understand your query."
 
-# Initialize chat history
+# ---------------------------
+# Chat history
+# ---------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Chat input
 with st.form("chat_form", clear_on_submit=True):
     user_input = st.text_input("Enter your query here...")
     submit = st.form_submit_button("Send")
@@ -214,7 +237,6 @@ if submit and user_input.strip():
     response = answer(user_input)
     st.session_state.chat_history.append({"user": user_input, "bot": response})
 
-# Display chat history
 for chat in st.session_state.chat_history[::-1]:
     st.markdown(f"**You:** {chat['user']}")
     if isinstance(chat["bot"], pd.DataFrame):
