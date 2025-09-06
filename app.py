@@ -47,7 +47,7 @@ df_view = sub.copy()
 if mi.isnumeric():
     df_view = df_view[df_view["MasterItemNo"] == int(mi)]
 if id_filter.isnumeric():
-    df_view = df_view[df["id"] == int(id_filter)]
+    df_view = df_view[df_view["id"] == int(id_filter)]
 
 st.subheader("📊 Predictions")
 st.dataframe(df_view, use_container_width=True, height=450)
@@ -98,7 +98,25 @@ def answer(query: str) -> str:
             return cols[matches[0]]
         return None
 
-    # 1. Handle conditional queries first
+    # 1. Handle "number of items with ..." queries
+    number_match = re.search(r"number of items with (\w+)\s*([<>]=?)\s*(\d+\.?\d*)", q)
+    if number_match:
+        col_word, operator, num_str = number_match.groups()
+        column = find_column(col_word)
+        if column:
+            threshold = float(num_str)
+            if operator in [">", ">="]:
+                res = sub[sub[column] >= threshold] if operator == ">=" else sub[sub[column] > threshold]
+            elif operator in ["<", "<="]:
+                res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
+            else:
+                return "⚠️ Invalid operator."
+            count = len(res)
+            if count == 0:
+                return f"Number of items where {column} {operator} {threshold}: 0"
+            return f"Number of items where {column} {operator} {threshold}: {count}\n\n" + df_to_string(res.head(10))
+
+    # 2. Handle conditional queries like 'show items where QtyShipped < 50'
     condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
     if condition_match:
         col_word, operator, num_str = condition_match.groups()
@@ -115,7 +133,7 @@ def answer(query: str) -> str:
                 return f"No records found where {column} {operator} {threshold}."
             return df_to_string(res.head(10))
 
-    # 2. Handle direct lookup by ID
+    # 3. Handle direct lookup by ID
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -125,7 +143,7 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for ID {id_val}."
 
-    # 3. Handle lookup by MasterItemNo
+    # 4. Handle lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -145,7 +163,7 @@ def answer(query: str) -> str:
         else:
             return "⚠️ Please specify a valid MasterItemNo."
 
-    # 4. Aggregations
+    # 5. Aggregations
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -156,7 +174,7 @@ def answer(query: str) -> str:
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost: Rs. {avg:,.2f}"
 
-    # 5. Highest / Lowest
+    # 6. Highest / Lowest
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -170,7 +188,7 @@ def answer(query: str) -> str:
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
-    # 6. Top N items
+    # 7. Top N items
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 5
@@ -181,7 +199,7 @@ def answer(query: str) -> str:
             res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
             return df_to_string(res)
 
-    # 7. Compare
+    # 8. Compare
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -194,7 +212,7 @@ def answer(query: str) -> str:
             return df_to_string(result)
         return "Please specify two MasterItemNo values to compare."
 
-    # 8. Explanations
+    # 9. Explanations
     if "how" in q and ("totalcost" in q or "total cost" in q):
         return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
 
@@ -208,22 +226,8 @@ def answer(query: str) -> str:
         "- 'Which MasterItemNo has highest TotalCost?'\n"
         "- 'Top 5 items by cost'\n"
         "- 'Compare item 100 vs 200'\n"
-        "- 'How is TotalCost calculated?'"
+        "- 'How is TotalCost calculated?'\n"
+        "- 'Number of items with QtyShipped < 50'"
     )
 
 # Chat UI
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-user_q = st.chat_input("Ask about costs, quantities, top items...")
-
-if user_q:
-    st.session_state.history.append(("user", user_q))
-    try:
-        ans = answer(user_q)
-    except Exception as e:
-        ans = f"⚠️ An error occurred: {e}"
-    st.session_state.history.append(("assistant", ans))
-
-for role, msg in st.session_state.history:
-    st.chat_message(role).write(msg)
