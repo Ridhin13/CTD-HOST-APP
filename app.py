@@ -107,9 +107,7 @@ def answer(query: str):
             
             # Handling "show" vs "number of"
             if "show" in q or "list" in q or "display" in q:
-                unique_ids = res["MasterItemNo"].unique()
-                df_res = pd.DataFrame({"MasterItemNo": unique_ids})
-                return df_res.reset_index(drop=True)
+                return res.reset_index(drop=True)
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
@@ -119,7 +117,7 @@ def answer(query: str):
             return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
 
     # Lookup by ID
-    if "id" in q and "where" not in q and not any(w in q for w in ["top", "number", "count"]):
+    if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
             id_val = ids[0]
@@ -127,7 +125,7 @@ def answer(query: str):
             return row if not row.empty else f"No record found for ID {id_val}."
 
     # Lookup by MasterItemNo
-    if ("masteritemno" in q or "item" in q) and "where" not in q and not any(w in q for w in ["top", "number", "count"]):
+    if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
             mi_val = ids[0]
