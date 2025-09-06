@@ -67,19 +67,7 @@ st.download_button(
 st.divider()
 st.subheader("💬 Chatbot Assistant")
 
-try:
-    from tabulate import tabulate
-    TABULATE_AVAILABLE = True
-except ImportError:
-    TABULATE_AVAILABLE = False
-
-def df_to_string(df):
-    if TABULATE_AVAILABLE:
-        return tabulate(df, headers='keys', tablefmt='pipe', showindex=False)
-    else:
-        return df.to_string(index=False)
-
-def answer(query: str) -> str:
+def answer(query: str):
     q = query.lower().strip()
     cols = {
         "unitcost": "UnitCost",
@@ -113,13 +101,12 @@ def answer(query: str) -> str:
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
-            count = len(res)
-            if count == 0:
+            if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
             if any(word in q for word in ["show", "list", "display"]):
-                return df_to_string(res.head(50))
+                return res.head(50)   # ✅ return DataFrame instead of string
             else:
-                return f"✅ Number of items with {column} {operator} {threshold}: {count}"
+                return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
 
     # Lookup by ID
     if "id" in q and "where" not in q:
@@ -127,9 +114,7 @@ def answer(query: str) -> str:
         if ids:
             id_val = ids[0]
             row = sub[sub["id"] == id_val]
-            if not row.empty:
-                return df_to_string(row)
-            return f"No record found for ID {id_val}."
+            return row if not row.empty else f"No record found for ID {id_val}."
 
     # Lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
@@ -146,7 +131,7 @@ def answer(query: str) -> str:
                     return f"Total QtyShipped for MasterItemNo {mi_val}: {total_qty:,.2f} {uom}"
                 if "totalcost" in q or "cost" in q or "spend" in q:
                     return f"TotalCost for MasterItemNo {mi_val}: Rs. {row['TotalCost'].sum():,.2f}"
-                return df_to_string(row)
+                return row
             return f"No record found for MasterItemNo {mi_val}."
         else:
             return "⚠️ Please specify a valid MasterItemNo."
@@ -182,14 +167,10 @@ def answer(query: str) -> str:
         k = nums[0] if nums else 5
         if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
             res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
-            if res.empty:
-                return "No records found."
-            return df_to_string(res)
+            return res
         if any(w in q for w in ["qty", "quantity"]):
             res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
-            if res.empty:
-                return "No records found."
-            return df_to_string(res)
+            return res
 
     # Compare two items
     if "compare" in q:
@@ -197,18 +178,16 @@ def answer(query: str) -> str:
         if len(nums) >= 2:
             mi1, mi2 = nums[0], nums[1]
             rows = sub[sub["MasterItemNo"].isin([mi1, mi2])]
-            if rows.empty:
-                return "No matching items found."
-            return df_to_string(rows)
+            return rows if not rows.empty else "No matching items found."
         return "⚠️ Please mention two items to compare."
 
     return "⚠️ Sorry, I couldn't understand your query."
 
-# Initialize chat history in session state
+# Initialize chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Input and display chat history
+# Chat input
 with st.form("chat_form", clear_on_submit=True):
     user_input = st.text_input("Enter your query here...")
     submit = st.form_submit_button("Send")
@@ -217,8 +196,11 @@ if submit and user_input.strip():
     response = answer(user_input)
     st.session_state.chat_history.append({"user": user_input, "bot": response})
 
-# Show all chat history in a chain format
+# Display chat history (DataFrames shown properly)
 for chat in st.session_state.chat_history:
     st.markdown(f"**You:** {chat['user']}")
-    st.markdown(f"**Bot:** {chat['bot']}")
+    if isinstance(chat["bot"], pd.DataFrame):
+        st.dataframe(chat["bot"], use_container_width=True, height=300)
+    else:
+        st.markdown(f"**Bot:** {chat['bot']}")
     st.markdown("---")
