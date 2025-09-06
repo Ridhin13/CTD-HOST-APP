@@ -4,7 +4,7 @@ import re
 import difflib
 
 # ---------------------------
-# Load predictions safely
+# Load data safely
 # ---------------------------
 @st.cache_data
 def load_predictions(path="submission_with_cost.csv"):
@@ -27,9 +27,10 @@ st.set_page_config(page_title="CTD Material Forecasting", layout="wide")
 st.title("🏗️ Material Forecasting & Procurement Assistant")
 
 if sub.empty:
-    st.warning("No data loaded. Please upload submission_with_cost.csv to your repo.")
+    st.warning("No data loaded. Please upload submission_with_cost.csv.")
     st.stop()
 
+# Metrics
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Rows", f"{len(sub):,}")
 col2.metric("Unique Items", f"{sub['MasterItemNo'].nunique():,}")
@@ -38,6 +39,7 @@ col4.metric("Total Cost (INR)", f"Rs. {sub['TotalCost'].sum():,.2f}")
 
 st.divider()
 
+# Sidebar filters
 with st.sidebar:
     st.header("🔎 Filters")
     mi = st.text_input("MasterItemNo (optional, numeric)")
@@ -50,7 +52,7 @@ if id_filter.isnumeric():
     df_view = df_view[df_view["id"] == int(id_filter)]
 
 st.subheader("📊 Predictions")
-st.dataframe(df_view, use_container_width=True, height=450)
+st.dataframe(df_view, use_container_width=True, height=400)
 
 st.download_button(
     "⬇️ Download predictions (CSV)",
@@ -60,7 +62,7 @@ st.download_button(
 )
 
 # ---------------------------
-# Chatbot Assistant with History
+# Chatbot Assistant
 # ---------------------------
 st.divider()
 st.subheader("💬 Chatbot Assistant")
@@ -98,6 +100,7 @@ def answer(query: str) -> str:
             return cols[matches[0]]
         return None
 
+    # Condition-based queries like cost > 1000
     condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
     if condition_match:
         col_word, operator, num_str = condition_match.groups()
@@ -118,6 +121,7 @@ def answer(query: str) -> str:
             else:
                 return f"✅ Number of items with {column} {operator} {threshold}: {count}"
 
+    # Lookup by ID
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -127,6 +131,7 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for ID {id_val}."
 
+    # Lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -146,6 +151,7 @@ def answer(query: str) -> str:
         else:
             return "⚠️ Please specify a valid MasterItemNo."
 
+    # Total summaries
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -156,6 +162,7 @@ def answer(query: str) -> str:
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost: Rs. {avg:,.2f}"
 
+    # Highest/lowest
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -169,6 +176,7 @@ def answer(query: str) -> str:
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
+    # Top k items
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 5
@@ -183,33 +191,34 @@ def answer(query: str) -> str:
                 return "No records found."
             return df_to_string(res)
 
+    # Compare two items
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
-            a, b = nums[:2]
-            rows = sub[sub["MasterItemNo"].isin([a, b])]
+            mi1, mi2 = nums[0], nums[1]
+            rows = sub[sub["MasterItemNo"].isin([mi1, mi2])]
             if rows.empty:
-                return "No matching records found to compare."
-            result = rows.groupby("MasterItemNo")[["QtyShipped", "UnitCost", "TotalCost"]].sum()
-            return df_to_string(result)
-        else:
-            return "⚠️ Please provide two MasterItemNos to compare."
+                return "No matching items found."
+            return df_to_string(rows)
+        return "⚠️ Please mention two items to compare."
 
-    return "⚠️ Sorry, I didn't understand that. Please ask about costs, quantities, top items, or comparisons."
+    return "⚠️ Sorry, I couldn't understand your query."
 
-# ---------------------------
-# Chatbox with Session State
-# ---------------------------
+# Initialize chat history in session state
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-query = st.text_input("Type your question here...")
-if query:
-    response = answer(query)
-    st.session_state.chat_history.append({"query": query, "response": response})
+# Input and display chat history
+with st.form("chat_form", clear_on_submit=True):
+    user_input = st.text_input("Enter your query here...")
+    submit = st.form_submit_button("Send")
 
-# Display chat history
+if submit and user_input.strip():
+    response = answer(user_input)
+    st.session_state.chat_history.append({"user": user_input, "bot": response})
+
+# Show all chat history in a chain format
 for chat in st.session_state.chat_history:
-    st.markdown(f"**You:** {chat['query']}")
-    st.markdown(f"**Assistant:** {chat['response']}")
-    st.divider()
+    st.markdown(f"**You:** {chat['user']}")
+    st.markdown(f"**Bot:** {chat['bot']}")
+    st.markdown("---")
