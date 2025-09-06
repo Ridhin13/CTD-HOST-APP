@@ -119,23 +119,15 @@ def answer(query: str):
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 3
         if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
-            grouped = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum()
-            res = grouped.sort_values("TotalCost", ascending=False).head(k)
-            if "show" in q or "list" in q or "display" in q:
-                return res.reset_index(drop=True)
-            else:
-                return f"✅ Top {k} MasterItemNo by TotalCost:\n" + "\n".join(
-                    [f"{row['MasterItemNo']}: Rs. {row['TotalCost']:,.2f}" for _, row in res.iterrows()]
-                )
+            top_items = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
+            top_ids = top_items["MasterItemNo"].tolist()
+            res = sub[sub["MasterItemNo"].isin(top_ids)]
+            return res.reset_index(drop=True)
         if any(w in q for w in ["qty", "quantity"]):
-            grouped = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum()
-            res = grouped.sort_values("QtyShipped", ascending=False).head(k)
-            if "show" in q or "list" in q or "display" in q:
-                return res.reset_index(drop=True)
-            else:
-                return f"✅ Top {k} MasterItemNo by QtyShipped:\n" + "\n".join(
-                    [f"{row['MasterItemNo']}: {row['QtyShipped']:,.2f}" for _, row in res.iterrows()]
-                )
+            top_items = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
+            top_ids = top_items["MasterItemNo"].tolist()
+            res = sub[sub["MasterItemNo"].isin(top_ids)]
+            return res.reset_index(drop=True)
 
     # Lookup by ID
     if "id" in q and "where" not in q:
