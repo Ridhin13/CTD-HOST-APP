@@ -101,24 +101,25 @@ def answer(query: str):
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
-
+            
             if res.empty:
                 return f"No records found where {column} {operator} {threshold}."
-
+            
             # Handling "show" vs "number of"
             if "show" in q or "list" in q or "display" in q:
-                unique_ids = res["MasterItemNo"].drop_duplicates().reset_index(drop=True)
-                return pd.DataFrame({"MasterItemNo": unique_ids})
+                unique_ids = res["MasterItemNo"].unique()
+                df_res = pd.DataFrame({"MasterItemNo": unique_ids})
+                return df_res.reset_index(drop=True)
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
                 return f"✅ Total rows matched: {total_count}\n✅ Unique MasterItemNo entries: {unique_count}"
-
+            
             # Default fallback
             return f"✅ Number of items with {column} {operator} {threshold}: {len(res)}"
 
     # Lookup by ID
-    if "id" in q and "where" not in q:
+    if "id" in q and "where" not in q and not any(w in q for w in ["top", "number", "count"]):
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
             id_val = ids[0]
@@ -126,7 +127,7 @@ def answer(query: str):
             return row if not row.empty else f"No record found for ID {id_val}."
 
     # Lookup by MasterItemNo
-    if ("masteritemno" in q or "item" in q) and "where" not in q:
+    if ("masteritemno" in q or "item" in q) and "where" not in q and not any(w in q for w in ["top", "number", "count"]):
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
             mi_val = ids[0]
