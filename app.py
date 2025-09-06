@@ -134,21 +134,22 @@ def answer(query: str):
             grouped = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum()
             res = grouped.sort_values("TotalCost", ascending=False).head(k)
             if "show" in q or "list" in q or "display" in q:
-                # ✅ Show all rows for these top MasterItemNo
                 return sub[sub["MasterItemNo"].isin(res["MasterItemNo"])].reset_index(drop=True)
             else:
-                return f"✅ Top {k} MasterItemNo by TotalCost:\n" + "\n".join(
-                    [f"{row['MasterItemNo']}: Rs. {row['TotalCost']:,.2f}" for _, row in res.iterrows()]
-                )
+                # ✅ Fixed formatting
+                lines = [f"✅ MasterItemNo {int(row['MasterItemNo'])}: Rs. {row['TotalCost']:,.2f}" 
+                         for _, row in res.iterrows()]
+                return "\n".join(lines)
         if any(w in q for w in ["qty", "quantity"]):
             grouped = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum()
             res = grouped.sort_values("QtyShipped", ascending=False).head(k)
             if "show" in q or "list" in q or "display" in q:
                 return sub[sub["MasterItemNo"].isin(res["MasterItemNo"])].reset_index(drop=True)
             else:
-                return f"✅ Top {k} MasterItemNo by QtyShipped:\n" + "\n".join(
-                    [f"{row['MasterItemNo']}: {row['QtyShipped']:,.2f}" for _, row in res.iterrows()]
-                )
+                # ✅ Fixed formatting
+                lines = [f"✅ MasterItemNo {int(row['MasterItemNo'])}: {row['QtyShipped']:,.2f}" 
+                         for _, row in res.iterrows()]
+                return "\n".join(lines)
 
     # ---------------------------
     # Lookup by ID
