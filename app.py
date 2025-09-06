@@ -107,9 +107,7 @@ def answer(query: str):
             
             # Handling "show" vs "number of"
             if "show" in q or "list" in q or "display" in q:
-                unique_items = res["MasterItemNo"].unique()
-                df_result = pd.DataFrame({"MasterItemNo": unique_items})
-                return df_result
+                return res.reset_index(drop=True)
             if "number" in q or "count" in q:
                 total_count = len(res)
                 unique_count = res["MasterItemNo"].nunique()
@@ -141,7 +139,7 @@ def answer(query: str):
                     return f"Total QtyShipped for MasterItemNo {mi_val}: {total_qty:,.2f} {uom}"
                 if "totalcost" in q or "cost" in q or "spend" in q:
                     return f"TotalCost for MasterItemNo {mi_val}: Rs. {row['TotalCost'].sum():,.2f}"
-                return row
+                return row.reset_index(drop=True)
             return f"No record found for MasterItemNo {mi_val}."
         else:
             return "⚠️ Please specify a valid MasterItemNo."
@@ -177,10 +175,10 @@ def answer(query: str):
         k = nums[0] if nums else 5
         if any(w in q for w in ["cost", "spend", "totalcost", "expensive"]):
             res = sub.groupby("MasterItemNo", as_index=False)["TotalCost"].sum().sort_values("TotalCost", ascending=False).head(k)
-            return res
+            return res.reset_index(drop=True)
         if any(w in q for w in ["qty", "quantity"]):
             res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
-            return res
+            return res.reset_index(drop=True)
 
     # Compare two items
     if "compare" in q:
@@ -188,7 +186,7 @@ def answer(query: str):
         if len(nums) >= 2:
             mi1, mi2 = nums[0], nums[1]
             rows = sub[sub["MasterItemNo"].isin([mi1, mi2])]
-            return rows if not rows.empty else "No matching items found."
+            return rows.reset_index(drop=True) if not rows.empty else "No matching items found."
         return "⚠️ Please mention two items to compare."
 
     return "⚠️ Sorry, I couldn't understand your query."
@@ -214,3 +212,4 @@ for chat in st.session_state.chat_history:
     else:
         st.markdown(f"**Bot:** {chat['bot']}")
     st.markdown("---")
+
