@@ -1,35 +1,17 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import re
-
-# Load CSV file
-@st.cache_data
-def load_data():
-    return pd.read_csv("submission_with_cost.csv")
-
-sub = load_data()
-
-st.set_page_config(page_title="CTD Material Assistant", layout="wide")
-
-st.title("📊 CTD Material Forecasting & Procurement Assistant")
-
-# Formatting function
 def format_money(val):
     return f"Rs. {val:,.2f}"
 
-# Answer function
 def answer(query: str) -> str:
     q = query.lower().strip()
-    cols = {
-        "unitcost": "UnitCost", "price": "UnitCost", "price per unit": "UnitCost",
-        "qtyshipped": "QtyShipped", "quantity": "QtyShipped", "qty": "QtyShipped",
-        "totalcost": "TotalCost", "cost": "TotalCost", "spend": "TotalCost"
-    }
+    cols = {"unitcost": "UnitCost", "price": "UnitCost", "price per unit": "UnitCost",
+            "qtyshipped": "QtyShipped", "quantity": "QtyShipped", "qty": "QtyShipped",
+            "totalcost": "TotalCost", "cost": "TotalCost", "spend": "TotalCost"}
     
+    # Explanatory Queries
     if "how" in q and "totalcost" in q:
         return "💡 TotalCost is calculated as: `QtyShipped × UnitCost`."
 
+    # Direct Lookup by ID
     if "id" in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -39,6 +21,7 @@ def answer(query: str) -> str:
                 return row.to_markdown(index=False)
             return f"No record found for ID {id_val}."
 
+    # Direct Lookup by MasterItemNo
     if "masteritemno" in q or "item" in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -46,17 +29,18 @@ def answer(query: str) -> str:
             row = sub[sub["MasterItemNo"] == mi]
             if not row.empty:
                 if "unitcost" in q or "price" in q:
-                    return f"💰 UnitCost for MasterItemNo {mi}: {format_money(row['UnitCost'].mean())}"
+                    return f"UnitCost for MasterItemNo {mi}: {format_money(row['UnitCost'].mean())}"
                 if "qty" in q or "quantity" in q:
                     total_qty = row['QtyShipped'].sum()
                     uoms = row['UOM'].unique()
                     uom_text = ", ".join(uoms)
-                    return f"📦 Total QtyShipped for MasterItemNo {mi}: {total_qty:,.2f} {uom_text}"
+                    return f"Total QtyShipped for MasterItemNo {mi}: {total_qty:,.2f} {uom_text}"
                 if "cost" in q or "totalcost" in q or "spend" in q:
-                    return f"💸 TotalCost for MasterItemNo {mi}: {format_money(row['TotalCost'].sum())}"
+                    return f"TotalCost for MasterItemNo {mi}: {format_money(row['TotalCost'].sum())}"
                 return row.to_markdown(index=False)
             return f"No record found for MasterItemNo {mi}."
 
+    # Conditional Queries (> or <)
     if ">" in q or "<" in q or "greater" in q or "less" in q:
         for k, v in cols.items():
             if k in q:
@@ -73,6 +57,7 @@ def answer(query: str) -> str:
                         return f"No records found with {v} condition."
                     return res.to_markdown(index=False)
 
+    # Count Queries
     if "number" in q and ("total cost" in q or "cost" in q or "qty" in q or "quantity" in q):
         for k, v in cols.items():
             if k in q:
@@ -85,30 +70,30 @@ def answer(query: str) -> str:
                         count = sub[sub[v] < threshold].shape[0]
                     else:
                         count = sub[sub[v] == threshold].shape[0]
-                    return f"📊 Number of items with {v} condition: {count}"
+                    return f"Number of items with {v} condition: {count}"
 
+    # Aggregations
     if "total" in q and "qty" in q:
-        return f"📦 Grand total QtyShipped: {sub['QtyShipped'].sum():,.2f}"
-
+        return f"Grand total QtyShipped: {sub['QtyShipped'].sum():,.2f}"
     if "total cost" in q or "spend" in q:
-        return f"💰 Grand total cost: {format_money(sub['TotalCost'].sum())}"
-
+        return f"Grand total cost: {format_money(sub['TotalCost'].sum())}"
     if "average" in q and "unitcost" in q:
         avg = sub.groupby("MasterItemNo")["UnitCost"].mean().mean()
-        return f"📈 Average UnitCost across items: {format_money(avg)}"
+        return f"Average UnitCost across items: {format_money(avg)}"
 
+    # Highest / Lowest
     if "highest" in q or "most" in q or "max" in q:
         for k, v in cols.items():
             if k in q:
                 row = sub.loc[sub[v].idxmax()]
-                return f"🏆 Highest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}={format_money(row[v])}"
-
+                return f"Highest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}={format_money(row[v])}"
     if "lowest" in q or "min" in q:
         for k, v in cols.items():
             if k in q:
                 row = sub.loc[sub[v].idxmin()]
-                return f"📉 Lowest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}={format_money(row[v])}"
+                return f"Lowest {v}: MasterItemNo {int(row['MasterItemNo'])}, {v}={format_money(row[v])}"
 
+    # Top N items
     if "top" in q:
         k = 5
         nums = [int(s) for s in re.findall(r"\d+", q)]
@@ -124,6 +109,7 @@ def answer(query: str) -> str:
                 res = sub.groupby("MasterItemNo", as_index=False)["QtyShipped"].sum().sort_values("QtyShipped", ascending=False).head(k)
                 return res.to_markdown(index=False)
 
+    # Comparisons
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -140,10 +126,3 @@ def answer(query: str) -> str:
             "- 'Top 5 items by cost'\n"
             "- 'Compare item 100 vs 200'\n"
             "- 'How is TotalCost calculated?'")
-
-# Streamlit interface
-query = st.text_input("Ask about your material data:", placeholder="Type something like 'TotalCost for item 1234'")
-
-if query:
-    response = answer(query)
-    st.markdown(response)
