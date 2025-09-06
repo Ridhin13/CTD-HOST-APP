@@ -60,7 +60,7 @@ st.download_button(
 )
 
 # ---------------------------
-# Chatbot Assistant
+# Chatbot Assistant with History
 # ---------------------------
 st.divider()
 st.subheader("💬 Chatbot Assistant")
@@ -98,7 +98,6 @@ def answer(query: str) -> str:
             return cols[matches[0]]
         return None
 
-    # Handle condition queries like 'TotalCost < 50000'
     condition_match = re.search(r"(totalcost|total cost|qtyshipped|quantity|qty|unitcost|price)[^\d<>]*([<>]=?)\s*(\d+\.?\d*)", q)
     if condition_match:
         col_word, operator, num_str = condition_match.groups()
@@ -111,17 +110,14 @@ def answer(query: str) -> str:
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
-
             count = len(res)
             if count == 0:
                 return f"No records found where {column} {operator} {threshold}."
-
             if any(word in q for word in ["show", "list", "display"]):
-                return df_to_string(res.head(50))  # Show up to 50 rows
+                return df_to_string(res.head(50))
             else:
                 return f"✅ Number of items with {column} {operator} {threshold}: {count}"
 
-    # Direct lookup by ID
     if "id" in q and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -131,7 +127,6 @@ def answer(query: str) -> str:
                 return df_to_string(row)
             return f"No record found for ID {id_val}."
 
-    # Lookup by MasterItemNo
     if ("masteritemno" in q or "item" in q) and "where" not in q:
         ids = [int(s) for s in re.findall(r"\d+", q)]
         if ids:
@@ -151,7 +146,6 @@ def answer(query: str) -> str:
         else:
             return "⚠️ Please specify a valid MasterItemNo."
 
-    # Aggregations
     if "total" in q and ("qty" in q or "quantity" in q):
         total_qty = sub["QtyShipped"].sum()
         uom = sub["UOM"].mode().values[0] if not sub["UOM"].mode().empty else ""
@@ -162,7 +156,6 @@ def answer(query: str) -> str:
         avg = sub["UnitCost"].mean()
         return f"Average UnitCost: Rs. {avg:,.2f}"
 
-    # Highest / Lowest
     if "highest" in q or "max" in q or "most" in q:
         for word in cols.keys():
             if word in q:
@@ -176,7 +169,6 @@ def answer(query: str) -> str:
                 row = sub.loc[sub[column].idxmin()]
                 return f"Lowest {column}: MasterItemNo {int(row['MasterItemNo'])}, {column}=Rs. {row[column]:,.2f}"
 
-    # Top N items
     if "top" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         k = nums[0] if nums else 5
@@ -191,7 +183,6 @@ def answer(query: str) -> str:
                 return "No records found."
             return df_to_string(res)
 
-    # Compare two items
     if "compare" in q:
         nums = [int(s) for s in re.findall(r"\d+", q)]
         if len(nums) >= 2:
@@ -199,19 +190,26 @@ def answer(query: str) -> str:
             rows = sub[sub["MasterItemNo"].isin([a, b])]
             if rows.empty:
                 return "No matching records found to compare."
-            result = rows.groupby("MasterItemNo")[["QtyShipped", "TotalCost"]].sum().reset_index()
+            result = rows.groupby("MasterItemNo")[["QtyShipped", "UnitCost", "TotalCost"]].sum()
             return df_to_string(result)
         else:
             return "⚠️ Please provide two MasterItemNos to compare."
 
-    # Fallback
     return "⚠️ Sorry, I didn't understand that. Please ask about costs, quantities, top items, or comparisons."
 
 # ---------------------------
-# Chatbot UI
+# Chatbox with Session State
 # ---------------------------
-query = st.text_input("Ask about costs, quantities, top items...", "")
-if query:
-    answer_text = answer(query)
-    st.markdown(answer_text.replace("\n", "  \n"))
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
+query = st.text_input("Type your question here...")
+if query:
+    response = answer(query)
+    st.session_state.chat_history.append({"query": query, "response": response})
+
+# Display chat history
+for chat in st.session_state.chat_history:
+    st.markdown(f"**You:** {chat['query']}")
+    st.markdown(f"**Assistant:** {chat['response']}")
+    st.divider()
