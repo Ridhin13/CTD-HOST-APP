@@ -111,10 +111,15 @@ def answer(query: str) -> str:
                 res = sub[sub[column] <= threshold] if operator == "<=" else sub[sub[column] < threshold]
             else:
                 return "⚠️ Invalid operator."
+
             count = len(res)
             if count == 0:
                 return f"No records found where {column} {operator} {threshold}."
-            return f"✅ Number of items with {column} {operator} {threshold}: {count}"
+
+            if any(word in q for word in ["show", "list", "display"]):
+                return df_to_string(res.head(50))  # Show up to 50 rows
+            else:
+                return f"✅ Number of items with {column} {operator} {threshold}: {count}"
 
     # Direct lookup by ID
     if "id" in q and "where" not in q:
@@ -195,40 +200,18 @@ def answer(query: str) -> str:
             if rows.empty:
                 return "No matching records found to compare."
             result = rows.groupby("MasterItemNo")[["QtyShipped", "TotalCost"]].sum().reset_index()
-            result["TotalCost"] = result["TotalCost"].apply(lambda x: f"Rs. {x:,.2f}")
             return df_to_string(result)
-        return "Please specify two MasterItemNo values to compare."
-
-    # Explanations
-    if "how" in q and ("totalcost" in q or "total cost" in q):
-        return "💡 TotalCost is calculated as: QtyShipped × UnitCost."
+        else:
+            return "⚠️ Please provide two MasterItemNos to compare."
 
     # Fallback
-    return (
-        "🤖 I didn’t fully understand that. Here are example queries you can try:\n"
-        "- 'UnitCost for ID 102'\n"
-        "- 'TotalCost of MasterItemNo 555'\n"
-        "- 'Show items where QtyShipped > 50'\n"
-        "- 'List items where TotalCost < 50000'\n"
-        "- 'Which MasterItemNo has highest TotalCost?'\n"
-        "- 'Top 5 items by cost'\n"
-        "- 'Compare item 100 vs 200'\n"
-        "- 'How is TotalCost calculated?'"
-    )
+    return "⚠️ Sorry, I didn't understand that. Please ask about costs, quantities, top items, or comparisons."
 
-# Chat UI
-if "history" not in st.session_state:
-    st.session_state.history = []
+# ---------------------------
+# Chatbot UI
+# ---------------------------
+query = st.text_input("Ask about costs, quantities, top items...", "")
+if query:
+    answer_text = answer(query)
+    st.markdown(answer_text.replace("\n", "  \n"))
 
-user_q = st.chat_input("Ask about costs, quantities, top items...")
-
-if user_q:
-    st.session_state.history.append(("user", user_q))
-    try:
-        ans = answer(user_q)
-    except Exception as e:
-        ans = f"⚠️ An error occurred: {e}"
-    st.session_state.history.append(("assistant", ans))
-
-for role, msg in st.session_state.history:
-    st.chat_message(role).write(msg)
